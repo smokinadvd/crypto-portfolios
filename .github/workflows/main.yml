@@ -1,0 +1,33 @@
+name: Portfolio Tracking
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # Runs at midnight on the 1st of every month
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.x
+
+    - name: Install dependencies
+      run: |
+        pip install requests pandas openpyxl
+
+    - name: Run the script
+      run: python portfolio_tracker.py
+
+    - name: Commit and push the updated Excel file
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add portfolios.xlsx
+        git commit -m "Update portfolios at month $(date +'%Y-%m')"
+        git push
