@@ -1,7 +1,12 @@
 import requests
 import pandas as pd
+import schedule
+import time
 from datetime import datetime, timedelta
-import os
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Define the API endpoint and the provided API key
 api_key = "8e58e4ac-182a-4c41-ac41-6f7032cfd47c"
@@ -12,11 +17,25 @@ headers = {
     'X-CMC_PRO_API_KEY': api_key,
 }
 
-# Function to create a new portfolio
-def create_new_portfolio(min_market_cap=100000):
+class Coin:
+    def __init__(self, id, symbol, name, price, change_24h, change_7d, market_cap, date_added, timestamp):
+        self.id = id
+        self.symbol = symbol
+        self.name = name
+        self.price = price if price is not None else 0.0
+        self.change_24h = change_24h if change_24h is not None else 0.0
+        self.change_7d = change_7d if change_7d is not None else 0.0
+        self.market_cap = market_cap if market_cap is not None else 0.0
+        self.date_added = date_added
+        self.timestamp = timestamp
+
+    def __str__(self):
+        return f"{self.symbol} | {self.name} | ${self.price:.8f} | {self.change_24h:.2f}% | {self.change_7d:.2f}% | ${self.market_cap:.2f} | {self.timestamp}"
+
+def get_latest_meme_coins(min_market_cap=100000):
     params = {
         'start': '1',
-        'limit': '1000',
+        'limit': '5000',  # Adjust as needed
         'sort': 'date_added',
         'sort_dir': 'desc',
         'convert': 'USD'
@@ -39,62 +58,98 @@ def create_new_portfolio(min_market_cap=100000):
                 change_7d = quote.get('percent_change_7d', 0)
                 market_cap = quote.get('market_cap', 0)
                 if market_cap >= min_market_cap:
-                    filtered_meme_coins.append({
-                        'ID': id,
-                        'Symbol': symbol,
-                        'Name': name,
-                        'Price': price,
-                        'Market Cap': market_cap,
-                        '24h Change': change_24h,
-                        '7d Change': change_7d,
-                        'Date Added': coin.get('date_added', '1970-01-01T00:00:00Z'),
-                        'Timestamp': timestamp
-                    })
-                if len(filtered_meme_coins) >= 100:
-                    break
+                    date_added = coin.get('date_added', '1970-01-01T00:00:00Z')
+                    coin_instance = Coin(id, symbol, name, price, change_24h, change_7d, market_cap, date_added, timestamp)
+                    filtered_meme_coins.append(coin_instance)
+
+                    if len(filtered_meme_coins) == 100:
+                        break
     else:
-        print(f"Error fetching latest coins: {response.status_code}")
+        logging.error(f"Error: {response.json()['status']['error_message']}")
+    
+    logging.info(f"Number of coins fetched from CoinMarketCap: {len(filtered_meme_coins)}")
+    return filtered_meme_coins
 
-    df = pd.DataFrame(filtered_meme_coins)
-    return df
+def get_coin_data_by_ids(coin_ids):
+    params = {
+        'id': ','.join(map(str, coin_ids)),
+        'convert': 'USD'
+    }
+    response = requests.get(url_quotes, headers=headers, params=params)
+    if response.status_code == 200:
+        return response.json()['data']
+    else:
+        logging.error(f"Error: {response.json()['status']['error_message']}")
+        return {}
 
-# Function to update the portfolio
-def update_portfolio(portfolio_id, df, months=12):
+def save_portfolio_to_excel(portfolio_data, file_path):
+    with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+        for portfolio_name, data in portfolio_data.items():
+            df = pd.DataFrame(data)
+            df.to_excel(writer, sheet_name=portfolio_name)
+
+        # Ensure at least one sheet is visible
+        if not writer.book.worksheets:
+            writer.book.create_sheet(title='Sheet1')
+
+def create_and_track_portfolios():
+    min_market_cap = 100000
+    portfolio_size = 150000
+
+    latest_meme_coins = get_latest_meme_coins(min_market_cap)
+    num_coins = len(latest_meme_coins)
+    if num_coins < 100:
+        logging.error("Not enough coins to create a full portfolio. Skipping this creation.")
+        return
+
+    investment_per_coin = portfolio_size / num_coins
+
+    portfolio = {
+        'creation_date': datetime.now(),
+        'coins': {coin.id: {'coin': coin, 'investment': investment_per_coin} for coin in latest_meme_coins},
+        'returns': []
+    }
+    portfolios.append(portfolio)
+
+    schedule_time = portfolio['creation_date'] + timedelta(minutes=30)
+    schedule.every().month.at(schedule_time.strftime('%Y-%m-%d %H:%M')).do(track_portfolio_performance, portfolio=portfolio, num_coins=num_coins)
+
+    if len(portfolios) >= 20:
+        return schedule.CancelJob
+
+def track_portfolio_performance(portfolio, num_coins):
+    coin_ids = list(portfolio['coins'].keys())
+    updated_coin_data = get_coin_data_by_ids(coin_ids)
+
+    total_return = 0
+    for coin_id in coin_ids:
+        initial_coin = portfolio['coins'][coin_id]['coin']
+        initial_price = initial_coin.price
+        updated_price = updated_coin_data[str(coin_id)]['quote']['USD']['price']
+        investment = portfolio['coins'][coin_id]['investment']
+        return_percentage = ((updated_price - initial_price) / initial_price) * 100
+        total_return += return_percentage
+        logging.info(f"{initial_coin.symbol} | Initial Price: ${initial_price:.8f} | Updated Price: ${updated_price:.8f} | Return: {return_percentage:.2f}%")
+
+    average_return = total_return / num_coins
+    logging.info(f"Total Return: {total_return:.2f}% | Average Return: {average_return:.2f}%")
+
+    # Save data to Excel
     portfolio_path = 'portfolios.xlsx'
-    with pd.ExcelWriter(portfolio_path, engine='openpyxl', mode='a') as writer:
-        for month in range(months):
-            monthly_date = (datetime.now() + pd.DateOffset(months=month)).strftime('%Y-%m')
-            for index, row in df.iterrows():
-                coin_id = row['ID']
-                params = {'id': coin_id, 'convert': 'USD'}
-                response = requests.get(url_quotes, headers=headers, params=params)
-                if response.status_code == 200:
-                    data = response.json()['data'][str(coin_id)]['quote']['USD']
-                    df.loc[index, f'Price {monthly_date}'] = data['price']
-                    df.loc[index, f'Market Cap {monthly_date}'] = data['market_cap']
-                    df.loc[index, f'24h Change {monthly_date}'] = data['percent_change_24h']
-                    df.loc[index, f'7d Change {monthly_date}'] = data['percent_change_7d']
-                else:
-                    print(f"Error updating coin {coin_id}: {response.status_code}")
-            # Save the updated portfolio
-            df.to_excel(writer, sheet_name=f'{portfolio_id}_{monthly_date}')
+    portfolio_data = {f"Portfolio_{portfolio['creation_date'].strftime('%Y-%m-%d')}": portfolio['coins']}
+    save_portfolio_to_excel(portfolio_data, portfolio_path)
 
-def main():
-    portfolio_path = 'portfolios.xlsx'
-    if not os.path.exists(portfolio_path):
-        with pd.ExcelWriter(portfolio_path, engine='openpyxl') as writer:
-            pass
+portfolios = []
+schedule.every().month.do(create_and_track_portfolios)
 
-    # Create a new portfolio each month
-    portfolio_id = datetime.now().strftime('portfolio_%Y_%m')
-    df = create_new_portfolio()
+start_time = datetime.now()
+while len(portfolios) < 20 or (datetime.now() - start_time).total_seconds() < 86400:
+    schedule.run_pending()
+    time.sleep(1)
 
-    # Save the new portfolio to a new sheet
-    with pd.ExcelWriter(portfolio_path, engine='openpyxl', mode='a') as writer:
-        df.to_excel(writer, sheet_name=portfolio_id)
+for idx, portfolio in enumerate(portfolios):
+    logging.info(f"Portfolio {idx + 1} created at {portfolio['creation_date']}")
+    for coin_id, details in portfolio['coins'].items():
+        logging.info(f"{details['coin'].symbol}: Invested: ${details['investment']:.2f} | Current Price: ${details['coin'].price:.8f}")
 
-    # Update the portfolio for 12 months
-    update_portfolio(portfolio_id, df)
-
-if __name__ == "__main__":
-    main()
+time.sleep(86400)
