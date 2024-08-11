@@ -1,8 +1,8 @@
 name: Portfolio Tracking
 
 on:
-  schedule:
-    - cron: '0 0 1 * *'  # Runs at midnight on the 1st of every month
+  push:  # Triggers the workflow on push to the repository
+  workflow_dispatch:  # Allows manual triggering of the workflow
 
 jobs:
   build:
@@ -29,5 +29,7 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add portfolios.xlsx
-        git commit -m "Update portfolios at month $(date +'%Y-%m')"
+        git commit -m "Update portfolios at $(date +'%Y-%m-%d %H:%M:%S')"
         git push
+
+
