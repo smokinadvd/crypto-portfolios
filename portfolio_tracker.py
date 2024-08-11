@@ -1,7 +1,7 @@
 import requests
-import pandas as pd
 import schedule
 import time
+import pandas as pd
 from datetime import datetime, timedelta
 import logging
 
@@ -82,16 +82,6 @@ def get_coin_data_by_ids(coin_ids):
         logging.error(f"Error: {response.json()['status']['error_message']}")
         return {}
 
-def save_portfolio_to_excel(portfolio_data, file_path):
-    with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
-        for portfolio_name, data in portfolio_data.items():
-            df = pd.DataFrame(data)
-            df.to_excel(writer, sheet_name=portfolio_name)
-
-        # Ensure at least one sheet is visible
-        if not writer.book.worksheets:
-            writer.book.create_sheet(title='Sheet1')
-
 def create_and_track_portfolios():
     min_market_cap = 100000
     portfolio_size = 150000
@@ -111,10 +101,10 @@ def create_and_track_portfolios():
     }
     portfolios.append(portfolio)
 
-    schedule_time = portfolio['creation_date'] + timedelta(minutes=30)
-    schedule.every().month.at(schedule_time.strftime('%Y-%m-%d %H:%M')).do(track_portfolio_performance, portfolio=portfolio, num_coins=num_coins)
+    schedule_time = portfolio['creation_date'] + timedelta(days=30)
+    schedule.every().day.at(schedule_time.strftime('%H:%M')).do(track_portfolio_performance, portfolio=portfolio, num_coins=num_coins)
 
-    if len(portfolios) >= 20:
+    if len(portfolios) >= 2:
         return schedule.CancelJob
 
 def track_portfolio_performance(portfolio, num_coins):
@@ -134,22 +124,31 @@ def track_portfolio_performance(portfolio, num_coins):
     average_return = total_return / num_coins
     logging.info(f"Total Return: {total_return:.2f}% | Average Return: {average_return:.2f}%")
 
-    # Save data to Excel
-    portfolio_path = 'portfolios.xlsx'
-    portfolio_data = {f"Portfolio_{portfolio['creation_date'].strftime('%Y-%m-%d')}": portfolio['coins']}
-    save_portfolio_to_excel(portfolio_data, portfolio_path)
+    # Save the results to an Excel file
+    portfolio_path = "portfolios.xlsx"
+    with pd.ExcelWriter(portfolio_path, engine='openpyxl') as writer:
+        for i, p in enumerate(portfolios, start=1):
+            df = pd.DataFrame({
+                'Coin': [coin['coin'].symbol for coin in p['coins'].values()],
+                'Initial Price': [coin['coin'].price for coin in p['coins'].values()],
+                'Current Price': [updated_coin_data[str(coin_id)]['quote']['USD']['price'] for coin_id in p['coins']],
+                'Investment': [coin['investment'] for coin in p['coins'].values()],
+                'Return (%)': [(updated_coin_data[str(coin_id)]['quote']['USD']['price'] - coin['coin'].price) / coin['coin'].price * 100 for coin_id, coin in p['coins'].items()]
+            })
+            df.to_excel(writer, sheet_name=f"Portfolio_{i}", index=False)
 
 portfolios = []
-schedule.every().month.do(create_and_track_portfolios)
 
-start_time = datetime.now()
-while len(portfolios) < 20 or (datetime.now() - start_time).total_seconds() < 86400:
+# Schedule the script to check every day if it's the first of the month, and if so, create and track portfolios
+def run_monthly_job():
+    today = datetime.today()
+    if today.day == 1:  # Check if today is the first day of the month
+        create_and_track_portfolios()
+
+# Schedule the job to run at midnight every day
+schedule.every().day.at("00:00").do(run_monthly_job)
+
+# Keep the script running
+while len(portfolios) < 20:
     schedule.run_pending()
     time.sleep(1)
-
-for idx, portfolio in enumerate(portfolios):
-    logging.info(f"Portfolio {idx + 1} created at {portfolio['creation_date']}")
-    for coin_id, details in portfolio['coins'].items():
-        logging.info(f"{details['coin'].symbol}: Invested: ${details['investment']:.2f} | Current Price: ${details['coin'].price:.8f}")
-
-time.sleep(86400)
