@@ -5,7 +5,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 0 * * *'  # Runs at midnight UTC every day
+    - cron: '0 0 * * *'  # Runs daily at midnight UTC
 
 jobs:
   build:
@@ -22,7 +22,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install requests pandas openpyxl
+        pip install requests pandas openpyxl schedule
 
     - name: Run the portfolio tracker script
       run: python portfolio_tracker.py

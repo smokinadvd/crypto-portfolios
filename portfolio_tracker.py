@@ -1,16 +1,17 @@
 import requests
-import pandas as pd
-import openpyxl
+import schedule
+import time
 from datetime import datetime, timedelta
 import logging
-import os
-import time
+import pandas as pd
+from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 
 # Define the API endpoint and the provided API key
-api_key = "8e58e4ac-182a-4c41-ac41-6f7032cfd47c"
+api_key = "your_coinmarketcap_api_key"
 url_latest = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
 url_quotes = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
 headers = {
@@ -83,16 +84,32 @@ def get_coin_data_by_ids(coin_ids):
         logging.error(f"Error: {response.json()['status']['error_message']}")
         return {}
 
+def save_portfolio(workbook, portfolio):
+    sheet_name = portfolio['creation_date'].strftime('%Y-%m-%d')
+    if sheet_name not in workbook.sheetnames:
+        workbook.create_sheet(title=sheet_name)
+    sheet = workbook[sheet_name]
+
+    data = {
+        'ID': [coin['coin'].id for coin in portfolio['coins'].values()],
+        'Symbol': [coin['coin'].symbol for coin in portfolio['coins'].values()],
+        'Name': [coin['coin'].name for coin in portfolio['coins'].values()],
+        'Price': [coin['coin'].price for coin in portfolio['coins'].values()],
+        '24h Change': [coin['coin'].change_24h for coin in portfolio['coins'].values()],
+        '7d Change': [coin['coin'].change_7d for coin in portfolio['coins'].values()],
+        'Market Cap': [coin['coin'].market_cap for coin in portfolio['coins'].values()],
+        'Investment': [coin['investment'] for coin in portfolio['coins'].values()],
+    }
+
+    df = pd.DataFrame(data)
+    for r in dataframe_to_rows(df, index=False, header=True):
+        sheet.append(r)
+
+    workbook.save('portfolios.xlsx')
+
 def create_and_track_portfolios():
     min_market_cap = 100000
     portfolio_size = 150000
-
-    # Load or create Excel file
-    portfolio_path = 'portfolios.xlsx'
-    if os.path.exists(portfolio_path):
-        workbook = pd.ExcelFile(portfolio_path)
-    else:
-        workbook = None
 
     latest_meme_coins = get_latest_meme_coins(min_market_cap)
     num_coins = len(latest_meme_coins)
@@ -107,49 +124,22 @@ def create_and_track_portfolios():
         'coins': {coin.id: {'coin': coin, 'investment': investment_per_coin} for coin in latest_meme_coins},
         'returns': []
     }
-    portfolios.append(portfolio)
 
-    # Track and save the portfolio
+    try:
+        workbook = load_workbook('portfolios.xlsx')
+    except FileNotFoundError:
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+
     save_portfolio(workbook, portfolio)
 
-    # Schedule monthly tracking for 12 months
-    for month in range(1, 13):
-        time.sleep(2)  # small sleep to avoid hitting rate limits
-        track_portfolio_performance(portfolio, num_coins, month)
+    schedule.every(30).days.do(track_portfolio_performance, portfolio=portfolio, num_coins=num_coins)
 
-def save_portfolio(workbook, portfolio):
-    df = pd.DataFrame({
-        'ID': [coin.id for coin in portfolio['coins'].values()],
-        'Symbol': [coin['coin'].symbol for coin in portfolio['coins'].values()],
-        'Name': [coin['coin'].name for coin in portfolio['coins'].values()],
-        'Initial Price': [coin['coin'].price for coin in portfolio['coins'].values()],
-        'Market Cap': [coin['coin'].market_cap for coin in portfolio['coins'].values()],
-        '24h Change': [coin['coin'].change_24h for coin in portfolio['coins'].values()],
-        '7d Change': [coin['coin'].change_7d for coin in portfolio['coins'].values()],
-        'Investment': [coin['investment'] for coin in portfolio['coins'].values()],
-    })
-
-    sheet_name = f"Portfolio {portfolio['creation_date'].strftime('%Y-%m-%d')}"
-    if workbook:
-        with pd.ExcelWriter(portfolio_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
-    else:
-        with pd.ExcelWriter(portfolio_path, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-    logging.info(f"Portfolio saved: {sheet_name}")
-
-def track_portfolio_performance(portfolio, num_coins, month):
-    # Advance the date by the given number of months
-    track_date = portfolio['creation_date'] + timedelta(days=30 * month)
-    if datetime.now() < track_date:
-        return
-
+def track_portfolio_performance(portfolio, num_coins):
     coin_ids = list(portfolio['coins'].keys())
     updated_coin_data = get_coin_data_by_ids(coin_ids)
 
     total_return = 0
-    df = pd.DataFrame()
     for coin_id in coin_ids:
         initial_coin = portfolio['coins'][coin_id]['coin']
         initial_price = initial_coin.price
@@ -157,31 +147,14 @@ def track_portfolio_performance(portfolio, num_coins, month):
         investment = portfolio['coins'][coin_id]['investment']
         return_percentage = ((updated_price - initial_price) / initial_price) * 100
         total_return += return_percentage
-        df = df.append({
-            'Month': month,
-            'Symbol': initial_coin.symbol,
-            'Name': initial_coin.name,
-            'Initial Price': initial_price,
-            'Updated Price': updated_price,
-            'Return (%)': return_percentage
-        }, ignore_index=True)
+        logging.info(f"{initial_coin.symbol} | Initial Price: ${initial_price:.8f} | Updated Price: ${updated_price:.8f} | Return: {return_percentage:.2f}%")
 
     average_return = total_return / num_coins
-    logging.info(f"Total Return after {month} months: {total_return:.2f}% | Average Return: {average_return:.2f}%")
+    logging.info(f"Total Return: {total_return:.2f}% | Average Return: {average_return:.2f}%")
 
-    # Save the monthly tracking data
-    portfolio_path = 'portfolios.xlsx'
-    sheet_name = f"Portfolio {portfolio['creation_date'].strftime('%Y-%m-%d')}_Month_{month}"
-    with pd.ExcelWriter(portfolio_path, engine='openpyxl', mode='a') as writer:
-        df.to_excel(writer, sheet_name=sheet_name, index=False)
+# Schedule to create a new portfolio every day
+schedule.every().day.at("00:00").do(create_and_track_portfolios)
 
-# Main Execution Logic
-portfolios = []
-
-# Create initial portfolio
-create_and_track_portfolios()
-
-# Ensure new portfolios are created every 24 hours and tracked monthly
-while len(portfolios) < 365:
-    time.sleep(86400)  # Sleep for 24 hours
-    create_and_track_portfolios()
+while True:
+    schedule.run_pending()
+    time.sleep(1)
