@@ -1,7 +1,9 @@
-name: Daily Portfolio Creation and Tracking
+name: Portfolio Tracking
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '0 0 * * *'  # Runs at midnight UTC every day
 
@@ -22,7 +24,13 @@ jobs:
       run: |
         pip install requests pandas openpyxl
 
-    - name: Run the script
+    - name: Run the portfolio tracker script
       run: python portfolio_tracker.py
 
-    - name: Commit
+    - name: Commit and push the updated Excel file
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add portfolios.xlsx
+        git commit -m "Update portfolios at $(date +'%Y-%m-%d %H:%M:%S')"
+        git push
