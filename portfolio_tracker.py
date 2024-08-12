@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 logging.basicConfig(level=logging.INFO)
 
 # Define the API endpoint and the provided API key
-api_key = "your_coinmarketcap_api_key"
+api_key = "8e58e4ac-182a-4c41-ac41-6f7032cfd47c"
 url_latest = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
 url_quotes = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
 headers = {
