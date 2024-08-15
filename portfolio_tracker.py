@@ -1,23 +1,23 @@
 import requests
-import schedule
-import time
+import pandas as pd
+import openpyxl
 from datetime import datetime, timedelta
 import logging
-import pandas as pd
-from openpyxl import Workbook, load_workbook
-from openpyxl.utils import get_column_letter
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
-# Define the API endpoint and the provided API key
-api_key = "8e58e4ac-182a-4c41-ac41-6f7032cfd47c"
-url_latest = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
-url_quotes = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-headers = {
+# Define the CoinMarketCap API endpoint and your API key
+coinmarketcap_api_key = "8e58e4ac-182a-4c41-ac41-6f7032cfd47c"
+coinmarketcap_url_latest = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
+coinmarketcap_headers = {
     'Accepts': 'application/json',
-    'X-CMC_PRO_API_KEY': api_key,
+    'X-CMC_PRO_API_KEY': coinmarketcap_api_key,
 }
+
+# Define the Finnhub API endpoint and your API key
+finnhub_api_key = "cquq339r01qvea0bvp60cquq339r01qvea0bvp6g"
+finnhub_base_url = "https://finnhub.io/api/v1"
 
 class Coin:
     def __init__(self, id, symbol, name, price, change_24h, change_7d, market_cap, date_added, timestamp):
@@ -42,7 +42,7 @@ def get_latest_meme_coins(min_market_cap=100000):
         'sort_dir': 'desc',
         'convert': 'USD'
     }
-    response = requests.get(url_latest, headers=headers, params=params)
+    response = requests.get(coinmarketcap_url_latest, headers=coinmarketcap_headers, params=params)
     filtered_meme_coins = []
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -72,40 +72,40 @@ def get_latest_meme_coins(min_market_cap=100000):
     logging.info(f"Number of coins fetched from CoinMarketCap: {len(filtered_meme_coins)}")
     return filtered_meme_coins
 
-def get_coin_data_by_ids(coin_ids):
+def get_index_price(symbol, date):
+    url = f"{finnhub_base_url}/quote"
     params = {
-        'id': ','.join(map(str, coin_ids)),
-        'convert': 'USD'
+        'symbol': symbol,
+        'token': finnhub_api_key
     }
-    response = requests.get(url_quotes, headers=headers, params=params)
+    response = requests.get(url, params=params)
     if response.status_code == 200:
-        return response.json()['data']
+        data = response.json()
+        return data['c']  # Current price
     else:
-        logging.error(f"Error: {response.json()['status']['error_message']}")
-        return {}
+        logging.error(f"Error fetching data for index {symbol}: {response.json()['error']}")
+        return None
 
 def save_portfolio(workbook, portfolio):
-    sheet_name = portfolio['creation_date'].strftime('%Y-%m-%d')
-    if sheet_name not in workbook.sheetnames:
-        workbook.create_sheet(title=sheet_name)
-    sheet = workbook[sheet_name]
+    sheet_name = f"Portfolio_{portfolio['creation_date'].strftime('%Y-%m-%d')}"
+    worksheet = workbook.create_sheet(sheet_name)
 
-    data = {
-        'ID': [coin['coin'].id for coin in portfolio['coins'].values()],
-        'Symbol': [coin['coin'].symbol for coin in portfolio['coins'].values()],
-        'Name': [coin['coin'].name for coin in portfolio['coins'].values()],
-        'Price': [coin['coin'].price for coin in portfolio['coins'].values()],
-        '24h Change': [coin['coin'].change_24h for coin in portfolio['coins'].values()],
-        '7d Change': [coin['coin'].change_7d for coin in portfolio['coins'].values()],
-        'Market Cap': [coin['coin'].market_cap for coin in portfolio['coins'].values()],
-        'Investment': [coin['investment'] for coin in portfolio['coins'].values()],
-    }
+    worksheet.append([
+        'ID', 'Symbol', 'Name', 'Price', '24h Change (%)', '7d Change (%)', 'Market Cap', 'Creation Date', 'Timestamp',
+        'BTC Price', 'SOL Price', 'S&P 500 Price', 'Dow Jones Price', 'NASDAQ Composite Price'
+    ])
 
-    df = pd.DataFrame(data)
-    for r in dataframe_to_rows(df, index=False, header=True):
-        sheet.append(r)
+    btc_price = get_index_price("BINANCE:BTCUSDT", portfolio['creation_date'])
+    sol_price = get_index_price("BINANCE:SOLUSDT", portfolio['creation_date'])
+    sp500_price = get_index_price("^GSPC", portfolio['creation_date'])
+    dow_price = get_index_price("^DJI", portfolio['creation_date'])
+    nasdaq_price = get_index_price("^IXIC", portfolio['creation_date'])
 
-    workbook.save('portfolios.xlsx')
+    for coin in portfolio['coins'].values():
+        worksheet.append([
+            coin.id, coin.symbol, coin.name, coin.price, coin.change_24h, coin.change_7d, coin.market_cap, coin.date_added, coin.timestamp,
+            btc_price, sol_price, sp500_price, dow_price, nasdaq_price
+        ])
 
 def create_and_track_portfolios():
     min_market_cap = 100000
@@ -121,40 +121,51 @@ def create_and_track_portfolios():
 
     portfolio = {
         'creation_date': datetime.now(),
-        'coins': {coin.id: {'coin': coin, 'investment': investment_per_coin} for coin in latest_meme_coins},
+        'coins': {coin.id: coin for coin in latest_meme_coins},
         'returns': []
     }
+    portfolios.append(portfolio)
 
-    try:
-        workbook = load_workbook('portfolios.xlsx')
-    except FileNotFoundError:
-        workbook = Workbook()
-        workbook.remove(workbook.active)
-
+    workbook = openpyxl.Workbook()
+    portfolio_path = 'portfolios.xlsx'
     save_portfolio(workbook, portfolio)
 
-    schedule.every(30).days.do(track_portfolio_performance, portfolio=portfolio, num_coins=num_coins)
+    schedule_time = portfolio['creation_date'] + timedelta(minutes=30)
+    schedule.every().day.at(schedule_time.strftime('%H:%M')).do(track_portfolio_performance, portfolio=portfolio, num_coins=num_coins, workbook=workbook, portfolio_path=portfolio_path)
 
-def track_portfolio_performance(portfolio, num_coins):
-    coin_ids = list(portfolio['coins'].keys())
-    updated_coin_data = get_coin_data_by_ids(coin_ids)
+    workbook.save(portfolio_path)
+    workbook.close()
 
-    total_return = 0
-    for coin_id in coin_ids:
-        initial_coin = portfolio['coins'][coin_id]['coin']
-        initial_price = initial_coin.price
-        updated_price = updated_coin_data[str(coin_id)]['quote']['USD']['price']
-        investment = portfolio['coins'][coin_id]['investment']
-        return_percentage = ((updated_price - initial_price) / initial_price) * 100
-        total_return += return_percentage
-        logging.info(f"{initial_coin.symbol} | Initial Price: ${initial_price:.8f} | Updated Price: ${updated_price:.8f} | Return: {return_percentage:.2f}%")
+    if len(portfolios) >= 20:
+        return schedule.CancelJob
 
-    average_return = total_return / num_coins
-    logging.info(f"Total Return: {total_return:.2f}% | Average Return: {average_return:.2f}%")
+def track_portfolio_performance(portfolio, num_coins, workbook, portfolio_path):
+    for month in range(1, 13):  # Track for 12 months
+        track_time = portfolio['creation_date'] + timedelta(days=30 * month)
+        updated_coin_data = get_coin_data_by_ids([coin.id for coin in portfolio['coins'].values()])
 
-# Schedule to create a new portfolio every day
-schedule.every().day.at("00:00").do(create_and_track_portfolios)
+        total_return = 0
+        worksheet = workbook[portfolio['creation_date'].strftime('%Y-%m-%d')]
 
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+        for coin_id, coin in portfolio['coins'].items():
+            initial_price = coin.price
+            updated_price = updated_coin_data.get(str(coin_id), {}).get('quote', {}).get('USD', {}).get('price', 0)
+            investment = portfolio['coins'][coin_id].investment
+            return_percentage = ((updated_price - initial_price) / initial_price) * 100
+            total_return += return_percentage
+
+            worksheet.append([f"Month {month}", initial_price, updated_price, return_percentage])
+
+        average_return = total_return / num_coins
+        worksheet.append(['Total Return', 'Average Return', average_return])
+
+        workbook.save(portfolio_path)
+        workbook.close()
+
+        if len(portfolios) >= 20:
+            return schedule.CancelJob
+
+portfolios = []
+
+if __name__ == "__main__":
+    create_and_track_portfolios()
