@@ -2,7 +2,7 @@ name: Portfolio Tracking
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Run daily at midnight
+    - cron: '0 12 * * *'  # Runs every day at 12:00 PM UTC
 
 jobs:
   build:
@@ -19,7 +19,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install requests pandas openpyxl schedule
+        pip install requests pandas openpyxl
 
     - name: Run the script
       run: python portfolio_tracker.py
@@ -30,4 +30,4 @@ jobs:
         git config --local user.name "GitHub Action"
         git add portfolios.xlsx
         git commit -m "Update portfolios at $(date +'%Y-%m-%d %H:%M:%S')"
-        git
+        git push
