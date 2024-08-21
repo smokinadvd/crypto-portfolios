@@ -82,12 +82,8 @@ def get_alpha_vantage_price(symbol):
     response = requests.get(alpha_vantage_url, params=params)
     if response.status_code == 200:
         data = response.json()
-        if "Time Series (Daily)" in data:
-            latest_date = list(data["Time Series (Daily)"].keys())[0]
-            return data["Time Series (Daily)"][latest_date]["4. close"]
-        else:
-            logging.error(f"Error: No data found for {symbol}")
-            return None
+        price = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
+        return float(price)
     else:
         logging.error(f"Error: {response.json()}")
         return None
