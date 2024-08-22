@@ -73,19 +73,21 @@ def get_latest_meme_coins(min_market_cap=100000):
     logging.info(f"Number of coins fetched from CoinMarketCap: {len(filtered_meme_coins)}")
     return filtered_meme_coins
 
-def get_alpha_vantage_price(symbol):
-    params = {
-        'function': 'TIME_SERIES_DAILY',
-        'symbol': symbol,
-        'apikey': alpha_vantage_api_key
-    }
-    response = requests.get(alpha_vantage_url, params=params)
+def get_alpha_vantage_price(symbol, market):
+    url = f'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={symbol}&to_currency={market}&apikey={alpha_vantage_api_key}'
+    response = requests.get(url)
+    
     if response.status_code == 200:
         data = response.json()
-        price = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
-        return float(price)
+        try:
+            price = data['Realtime Currency Exchange Rate']['5. Exchange Rate']
+            logging.info(f"The current price for {symbol} in {market} is: ${price}")
+            return float(price)
+        except KeyError:
+            logging.error(f"Error retrieving data for {symbol}-{market}: {data}")
+            return None
     else:
-        logging.error(f"Error: {response.json()}")
+        logging.error(f"Error fetching Alpha Vantage data for {symbol}-{market}: {response.status_code}")
         return None
 
 def load_portfolio_data():
