@@ -142,8 +142,8 @@ def create_new_portfolio():
     latest_meme_coins = get_latest_meme_coins()
     coin_ids = [coin.id for coin in latest_meme_coins]
     index_prices = {
-        'BTC': get_alpha_vantage_price('BTC-USD'),
-        'SOL': get_alpha_vantage_price('SOL-USD')
+        'BTC': get_alpha_vantage_price('BTC', 'USD'),
+        'SOL': get_alpha_vantage_price('SOL', 'USD')
     }
 
     portfolio_data[portfolio_name] = {
