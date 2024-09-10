@@ -164,8 +164,8 @@ def update_portfolios():
         if today >= creation_date + timedelta(days=30 * len(data['monthly_prices'])):
             # Update the portfolio
             new_prices = {
-                'BTC': get_alpha_vantage_price('BTC-USD'),
-                'SOL': get_alpha_vantage_price('SOL-USD')
+                'BTC': get_alpha_vantage_price('BTC', 'USD'),
+                'SOL': get_alpha_vantage_price('SOL', 'USD')
             }
             data['monthly_prices'].append(new_prices)
     
