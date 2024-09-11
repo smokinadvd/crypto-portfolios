@@ -22,6 +22,7 @@ alpha_vantage_url = "https://www.alphavantage.co/query"
 
 portfolio_file = "portfolios.xlsx"
 
+
 class Coin:
     def __init__(self, id, symbol, name, price, change_24h, change_7d, market_cap, date_added):
         self.id = id
@@ -36,6 +37,7 @@ class Coin:
     def __str__(self):
         return f"{self.symbol} | {self.name} | ${self.price:.8f} | {self.change_24h:.2f}% | {self.change_7d:.2f}% | ${self.market_cap:.2f}"
 
+
 def get_latest_meme_coins(min_market_cap=100000):
     params = {
         'start': '1',
@@ -46,7 +48,7 @@ def get_latest_meme_coins(min_market_cap=100000):
     }
     response = requests.get(url_latest, headers=headers, params=params)
     filtered_meme_coins = []
-    
+
     if response.status_code == 200:
         data = response.json()
         for coin in data['data']:
@@ -73,10 +75,11 @@ def get_latest_meme_coins(min_market_cap=100000):
     logging.info(f"Number of coins fetched from CoinMarketCap: {len(filtered_meme_coins)}")
     return filtered_meme_coins
 
+
 def get_alpha_vantage_price(symbol, market):
     url = f'https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={symbol}&to_currency={market}&apikey={alpha_vantage_api_key}'
     response = requests.get(url)
-    
+
     if response.status_code == 200:
         data = response.json()
         try:
@@ -89,6 +92,7 @@ def get_alpha_vantage_price(symbol, market):
     else:
         logging.error(f"Error fetching Alpha Vantage data for {symbol}-{market}: {response.status_code}")
         return None
+
 
 def load_portfolio_data():
     if not os.path.exists(portfolio_file):
@@ -105,34 +109,36 @@ def load_portfolio_data():
             continue  # Skip header row
         portfolio_data[row[0]] = {
             'creation_date': row[1],
-            'coin_ids': row[2],
+            'coin_data': eval(row[2]),  # Ensure we store the entire coin data, not just IDs
             'index_prices': {
                 'BTC': row[3],
                 'SOL': row[4]
             },
-            'monthly_prices': row[5:]
+            'monthly_prices': eval(row[5]) if row[5] else []
         }
 
     return portfolio_data
 
+
 def save_portfolio_data(portfolio_data):
     workbook = Workbook()
     sheet = workbook.active
-    headers = ['Portfolio', 'Creation Date', 'Coin IDs', 'BTC Price', 'SOL Price', 'Monthly Prices']
+    headers = ['Portfolio', 'Creation Date', 'Coin Data', 'BTC Price', 'SOL Price', 'Monthly Prices']
     sheet.append(headers)
 
     for portfolio_name, data in portfolio_data.items():
         row = [
             portfolio_name,
             data['creation_date'],
-            data['coin_ids'],
+            str(data['coin_data']),  # Save full coin data
             data['index_prices']['BTC'],
             data['index_prices']['SOL'],
-            *data['monthly_prices']
+            str(data['monthly_prices'])  # Save monthly prices as a list
         ]
         sheet.append(row)
 
     workbook.save(portfolio_file)
+
 
 def create_new_portfolio():
     portfolio_data = load_portfolio_data()
@@ -140,7 +146,16 @@ def create_new_portfolio():
     portfolio_name = f"Portfolio_{portfolio_count}"
     
     latest_meme_coins = get_latest_meme_coins()
-    coin_ids = [coin.id for coin in latest_meme_coins]
+    coin_data = [{  # Save full coin data instead of just IDs
+        'id': coin.id,
+        'symbol': coin.symbol,
+        'name': coin.name,
+        'price': coin.price,
+        'change_24h': coin.change_24h,
+        'change_7d': coin.change_7d,
+        'market_cap': coin.market_cap
+    } for coin in latest_meme_coins]
+
     index_prices = {
         'BTC': get_alpha_vantage_price('BTC', 'USD'),
         'SOL': get_alpha_vantage_price('SOL', 'USD')
@@ -148,12 +163,13 @@ def create_new_portfolio():
 
     portfolio_data[portfolio_name] = {
         'creation_date': datetime.now().strftime("%Y-%m-%d"),
-        'coin_ids': coin_ids,
+        'coin_data': coin_data,  # Store the full data here
         'index_prices': index_prices,
         'monthly_prices': []
     }
 
     save_portfolio_data(portfolio_data)
+
 
 def update_portfolios():
     portfolio_data = load_portfolio_data()
@@ -161,7 +177,7 @@ def update_portfolios():
 
     for portfolio_name, data in portfolio_data.items():
         creation_date = datetime.strptime(data['creation_date'], "%Y-%m-%d")
-        if today >= creation_date + timedelta(days=30 * len(data['monthly_prices'])):
+        if today >= creation_date + timedelta(days=30 * (len(data['monthly_prices']) + 1)):  # Ensure new price is added only after a month
             # Update the portfolio
             new_prices = {
                 'BTC': get_alpha_vantage_price('BTC', 'USD'),
@@ -170,6 +186,7 @@ def update_portfolios():
             data['monthly_prices'].append(new_prices)
     
     save_portfolio_data(portfolio_data)
+
 
 if __name__ == "__main__":
     create_new_portfolio()
