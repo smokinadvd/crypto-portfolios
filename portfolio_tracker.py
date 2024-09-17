@@ -1,5 +1,4 @@
 import requests
-import pandas as pd
 import logging
 from datetime import datetime, timedelta
 from openpyxl import Workbook, load_workbook
@@ -11,15 +10,12 @@ logging.basicConfig(level=logging.DEBUG)
 # Define the API endpoints and the provided API keys
 api_key = "8e58e4ac-182a-4c41-ac41-6f7032cfd47c"
 url_latest = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
-url_quotes = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
 headers = {
     'Accepts': 'application/json',
     'X-CMC_PRO_API_KEY': api_key,
 }
 
 alpha_vantage_api_key = "BVGR4LWJ5G0F11HD"
-alpha_vantage_url = "https://www.alphavantage.co/query"
-
 portfolio_file = "portfolios.xlsx"
 
 class Coin:
@@ -99,7 +95,7 @@ def save_portfolio_data(portfolio_name, coin_data, index_prices):
     workbook = load_workbook(portfolio_file)
     sheet = workbook.create_sheet(title=portfolio_name)
 
-    # Create header row
+    # Create header row for coin data
     headers = ['ID', 'Symbol', 'Name', 'Price', 'Change 24h', 'Change 7d', 'Market Cap', 'Date Added']
     sheet.append(headers)
 
@@ -153,7 +149,11 @@ def update_portfolios():
         sheet = workbook[sheet_name]
 
         # Check if the portfolio needs to be updated (only if older than 30 days)
-        creation_date = sheet.cell(row=1, column=1).value
+        creation_date_cell = sheet.cell(row=1, column=1)
+        if creation_date_cell.value is None or not isinstance(creation_date_cell.value, datetime):
+            continue
+
+        creation_date = creation_date_cell.value
         if today >= creation_date + timedelta(days=30):
             # Update the portfolio with new BTC and SOL prices
             btc_price = get_alpha_vantage_price('BTC', 'USD')
